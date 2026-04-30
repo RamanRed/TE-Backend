@@ -85,8 +85,10 @@ class IntentExtractor:
             raw_intent = self.llm_service.extract_intent(query)
             intent = Intent.from_dict(raw_intent)
 
-            logger.info(f"Extracted intent: domains={intent.domains}, "
-                       f"keywords={len(intent.keywords)}, phases={intent.phases}")
+            logger.info(
+                "Extracted intent: domains=%s, keywords=%s, phases=%s",
+                intent.domains, intent.keywords, intent.phases,
+            )
             logger.debug(f"Intent summary: {intent.summary}")
 
             return intent
