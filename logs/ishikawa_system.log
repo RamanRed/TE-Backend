@@ -1,0 +1,5 @@
+2026-04-30 13:47:01,405 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=12)
+2026-04-30 13:47:01,547 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=12)
+2026-04-30 13:47:01,567 - ishikawa_system.src.api.app - INFO - create_application:84 - FastAPI application created
+2026-04-30 13:47:01,569 - ishikawa_system.src.api.app - INFO - lifespan:22 - Starting Ishikawa Knowledge System API
+2026-04-30 13:47:01,569 - ishikawa_system.src.api.app - INFO - lifespan:25 - API configured for 0.0.0.0:8000

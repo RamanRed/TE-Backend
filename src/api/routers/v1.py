@@ -5,7 +5,7 @@ Defines all API endpoints for analysis, search, and data management.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 

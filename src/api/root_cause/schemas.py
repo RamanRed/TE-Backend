@@ -42,7 +42,7 @@ class IshikawaCategory(BaseModel):
 class RootCauseProblemRequest(BaseModel):
     domain: str
     query: str
-    past_record: int
+    past_record: Optional[int] = None
 
 
 class RootCauseProblemResponse(BaseModel):
@@ -53,7 +53,7 @@ class RootCauseProblemResponse(BaseModel):
 class RootCauseRegenerateRequest(BaseModel):
     domain: str
     query: str
-    past_record: int
+    past_record: Optional[int] = None
     locked_result: List[Any]
 
 
@@ -65,7 +65,7 @@ class RootCauseRegenerateResponse(BaseModel):
 class RootCauseFiveWhyRequest(BaseModel):
     domain: str
     query: str
-    past_record: int
+    past_record: Optional[int] = None
     ishikawa: List[Any]
 
 
@@ -94,7 +94,7 @@ class FiveWhyPayload(BaseModel):
 class RootCauseRegenerateFiveWhyRequest(BaseModel):
     domain: str
     query: str
-    past_record: int
+    past_record: Optional[int] = None
     ishikawa: List[Any]
     locked_analysis: List[Any]
 
