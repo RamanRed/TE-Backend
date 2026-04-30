@@ -84,15 +84,15 @@ def test_system(args: argparse.Namespace) -> bool:
         logger.info("Database connection test passed")
 
         # Test LLM service
-        from app.llm.client import LLMService
+        from src.llm.service import LLMService
         if not LLMService(get_config().llm).ensure_model_available():
             logger.error("LLM service not available")
             return False
         logger.info("LLM service test passed")
 
         # Test basic analysis pipeline
-        from app.schemas.request import FrontendAnalysisRequest
-        from app.services.anlysis_service import APIService
+        from src.api.schemas.frontend import FrontendAnalysisRequest
+        from src.api.services.service import APIService
 
         result = APIService().analyze_frontend_workflow(
             FrontendAnalysisRequest(query="Machine failed during production run", include_details=False, max_results=10)
