@@ -151,25 +151,61 @@ class AnalysisOrchestrator:
         return state
 
     def _search_knowledge(self, state: AnalysisState) -> AnalysisState:
-        """Search knowledge base for relevant information."""
+        """Search knowledge base for relevant information (relevance-scored).
+
+        Uses advanced_search (fulltext Lucene scoring + structured filters) when
+        keywords are present so results are ranked by relevance, not by date.
+        Falls back to search_problems when no keywords are extracted.
+        """
         if not state["intent"]:
             state["errors"].append("Cannot search knowledge base: no intent extracted")
             return state
 
         try:
             intent = state["intent"]
+            result_limit = 20
             criteria = SearchCriteria(
                 domains=intent.domains,
                 keywords=intent.keywords,
                 phases=intent.phases,
                 part_numbers=intent.part_numbers,
                 time_filter=intent.time_filter,
-                limit=20
+                limit=result_limit,
             )
 
-            results = self.knowledge_repository.search_problems(criteria)
+            results: list = []
+
+            if intent.keywords:
+                search_text = " ".join(intent.keywords)
+                try:
+                    raw = self.knowledge_repository.advanced_search(search_text, criteria)
+                    for row in raw:
+                        if "problem_statement" in row:
+                            ps = dict(row["problem_statement"])
+                            ps["relevance_score"] = row.get("relevance_score", 0.0)
+                            results.append(ps)
+                        else:
+                            results.append(row)
+                    logger.info(
+                        "Orchestrator advanced search for %r returned %s relevant results",
+                        search_text, len(results),
+                    )
+                except Exception as adv_exc:
+                    logger.warning(
+                        "Orchestrator advanced search failed (%s), falling back to search_problems",
+                        adv_exc,
+                    )
+
+                if not results:
+                    results = self.knowledge_repository.fulltext_search(
+                        search_text, limit=result_limit
+                    )
+            else:
+                results = self.knowledge_repository.search_problems(criteria)
+                logger.info("Orchestrator structured search returned %s results", len(results))
+
             state["knowledge_results"] = results
-            logger.info(f"Knowledge search found {len(results)} results")
+            logger.info("Knowledge search found %s results", len(results))
 
         except Exception as e:
             logger.error(f"Knowledge search failed: {e}")
