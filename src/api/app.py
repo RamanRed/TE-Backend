@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .routers.v1 import router, service as v1_service
+from .routers.compat import router as compat_router
 from .root_cause.routes import router as root_cause_router, service as root_cause_service
 from ..utils.config import get_config
 from ..utils.logging import setup_logging, get_logger
@@ -74,6 +75,7 @@ def create_application() -> FastAPI:
     # Include API routes
     app.include_router(router)
     app.include_router(root_cause_router)
+    app.include_router(compat_router)
 
     # Health check endpoint (simple)
     @app.get("/health")

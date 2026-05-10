@@ -3,3 +3,20 @@
 2026-04-30 13:47:01,567 - ishikawa_system.src.api.app - INFO - create_application:84 - FastAPI application created
 2026-04-30 13:47:01,569 - ishikawa_system.src.api.app - INFO - lifespan:22 - Starting Ishikawa Knowledge System API
 2026-04-30 13:47:01,569 - ishikawa_system.src.api.app - INFO - lifespan:25 - API configured for 0.0.0.0:8000
+2026-05-10 01:55:25,270 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=12)
+2026-05-10 02:10:15,936 - ishikawa_system.src.database.prisma_client - INFO - get_prisma:22 - Prisma client connected to Supabase
+2026-05-10 02:12:18,319 - ishikawa_system.src.database.prisma_client - INFO - get_prisma:22 - Prisma client connected to Supabase
+2026-05-10 02:12:21,608 - ishikawa_system.src.database.supabase_save - INFO - save_analysis:64 - Prisma: session created  id=45e6ab41-c6c0-4324-b482-68f4971a2268
+2026-05-10 02:12:21,611 - ishikawa_system.src.database.supabase_save - ERROR - save_analysis:115 - Prisma save failed: Unable to match input value to any allowed input type for the field. Parse errors: [`data.session`: A value is required but not set, Unable to match input value to any allowed input type for the field. Parse errors: [Invalid argument type. `data` should be of any of the following types: `JsonNullValueInput`, Invalid argument type. `data` should be of any of the following types: `Json`]]
+2026-05-10 02:12:53,471 - ishikawa_system.src.database.prisma_client - INFO - get_prisma:22 - Prisma client connected to Supabase
+2026-05-10 02:12:56,604 - ishikawa_system.src.database.supabase_save - INFO - save_analysis:65 - Prisma: session created  id=871274d1-284e-41f6-be8a-8181af30c1e5
+2026-05-10 02:12:57,362 - ishikawa_system.src.database.supabase_save - INFO - save_analysis:89 - Prisma: ishikawa saved   id=593f00dd-d353-4233-ba7d-408b1c1c3941
+2026-05-10 02:12:58,127 - ishikawa_system.src.database.supabase_save - INFO - save_analysis:113 - Prisma: five_whys saved  id=b0641298-b6aa-41c0-a91a-b5c4fedc46d0
+2026-05-10 02:16:20,412 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=12)
+2026-05-10 15:01:44,860 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=10)
+2026-05-10 15:01:44,978 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=10)
+2026-05-10 15:01:44,986 - ishikawa_system.src.api.app - INFO - create_application:86 - FastAPI application created
+2026-05-10 15:04:51,039 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=10)
+2026-05-10 15:04:51,156 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=10)
+2026-05-10 15:04:51,163 - ishikawa_system.src.api.app - INFO - create_application:86 - FastAPI application created
+2026-05-11 01:50:22,399 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=12)

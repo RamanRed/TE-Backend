@@ -142,3 +142,88 @@ def placeholder_category_result() -> Dict[str, Any]:
         "evidence": ISHIKAWA_EMPTY_EVIDENCE,
         "severity": ISHIKAWA_DEFAULT_SEVERITY,
     }
+
+
+# ---------------------------------------------------------------------------
+# Save All — persists finalized analysis to Neo4j + Supabase
+# ---------------------------------------------------------------------------
+
+class SaveAllRequest(BaseModel):
+    """
+    Payload for POST /api/save.
+
+    Contains the finalized Ishikawa and 5-Whys data. Identity is resolved from
+    the authenticated JWT and the body identity fields are kept only for legacy
+    compatibility checks.
+    """
+
+    # Core analysis (mirrors RootCauseFinalizeRequest fields)
+    domain: str
+    query: str
+    ishikawa: List[Any]                     # IshikawaCategory[]
+    analysis: List[Any]                     # FiveWhyChainItem[]
+
+    # Legacy-compatible identity fields. The JWT is the source of truth.
+    user_id: Optional[str] = None           # users.id of the calling user
+    master_user_id: Optional[str] = None    # org's master user UUID
+    org_id: Optional[str] = None           # organization UUID
+
+    # Extra metadata
+    past_record: Optional[int] = None       # how many Neo4j past records were used
+    session_title: Optional[str] = None     # optional user-facing label for this session
+    ticket_ref: Optional[str] = None        # optional ticket/issue reference
+    part_number: Optional[str] = None       # optional part number
+
+
+class SaveAllResponse(BaseModel):
+    """Response for POST /api/save."""
+
+    success: bool
+    message: str
+
+    # Neo4j result
+    neo4j_ps_id: Optional[str] = None          # new ProblemStatement id in Neo4j
+    neo4j_content_count: int = 0               # number of Content nodes created
+
+    # Supabase result (None when Supabase is not configured)
+    supabase_session_id: Optional[str] = None
+    supabase_ishikawa_id: Optional[str] = None
+    supabase_five_whys_id: Optional[str] = None
+    supabase_skipped: bool = False             # True when SUPABASE_URL is not set
+
+
+# ---------------------------------------------------------------------------
+# History — fetching saved analyses from Supabase
+# ---------------------------------------------------------------------------
+
+class HistoryRequest(BaseModel):
+    """Payload to request the user's history.
+    
+    JWT token is verified via Bearer token in Authorization header.
+    Only org_id is required in the body.
+    """
+    org_id: str
+
+
+class HistorySessionItem(BaseModel):
+    """A single saved analysis session returned in the history."""
+    session_id: str
+    query: str
+    domain: Optional[str] = None
+    title: Optional[str] = None
+    created_at: str
+
+    # Summarized stats for list view
+    cause_count: int = 0
+    root_causes: List[str] = Field(default_factory=list)
+
+    # Full data snapshots
+    ishikawa: List[Any] = Field(default_factory=list)
+    five_whys: List[Any] = Field(default_factory=list)
+
+
+class HistoryResponse(BaseModel):
+    """Response for POST /api/history."""
+    success: bool
+    sessions: List[HistorySessionItem]
+    message: Optional[str] = None

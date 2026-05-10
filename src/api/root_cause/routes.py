@@ -1,10 +1,15 @@
 """Root cause analysis routes and handlers."""
 
 import json
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 
 from ..services import APIService
+from ...database.save_analysis import AnalysisSaver
+from ...database.supabase_save import SupabaseSaver
+from ...utils.auth import get_token_claims_from_bearer
+from ...database.prisma_client import get_prisma
 from ...llm.prompts import (
     get_finalize_analysis_prompt,
     get_generate_five_why_prompt,
@@ -37,12 +42,17 @@ from .schemas import (
     RootCauseRegenerateFiveWhyRequest,
     RootCauseRegenerateRequest,
     RootCauseRegenerateResponse,
+    SaveAllRequest,
+    SaveAllResponse,
+    HistoryRequest,
+    HistoryResponse,
 )
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["root-cause-analysis"])
 service = APIService()
+
 
 
 @router.post("/problem", response_model=RootCauseProblemResponse)
@@ -304,3 +314,298 @@ async def finalize_analysis(request: RootCauseFinalizeRequest):
         logger.error(f"Error in /api/finalize: {e}")
         service.disconnect_analysis_connection()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# POST /api/save — Save All (Neo4j + Supabase)
+# ---------------------------------------------------------------------------
+
+@router.post("/save", response_model=SaveAllResponse)
+async def save_all(
+    request: SaveAllRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Save a finalized Ishikawa + 5-Whys analysis.
+
+    Writes to **two stores** in sequence:
+
+    1. **Neo4j** (always) — creates a new ProblemStatement node with fully-
+       scaffolded D1-D7 phases and populates:
+         • D4/root_cause          — confirmed Ishikawa causes
+         • D4/contributing_factors — possible Ishikawa causes
+         • D5/ishikawa_analysis   — full Ishikawa JSON snapshot
+         • D5/five_whys           — each 5-Whys chain item
+         • D7/lesson_learned      — extracted root causes
+
+    2. **Supabase** (when SUPABASE_URL + SUPABASE_SERVICE_KEY are set) — inserts:
+         • analysis_sessions  (parent row)
+         • saved_ishikawa     (full IshikawaCategory[] as JSONB)
+         • saved_five_whys    (full FiveWhyChainItem[] as JSONB)
+       All three rows carry (user_id, master_user_id, org_id) for RLS.
+
+    If Supabase is not configured the Neo4j write still succeeds and
+    ``supabase_skipped=true`` is returned.
+    """
+    logger.info(
+        "Save All request: domain=%r  query=%r...",
+        request.domain,
+        request.query[:80],
+    )
+
+    payload = get_token_claims_from_bearer(authorization)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    user_id = payload.get("sub")
+    org_id = payload.get("org_id")
+    master_user_id = payload.get("master_user_id")
+
+    if not user_id or not org_id or not master_user_id:
+        raise HTTPException(status_code=401, detail="Invalid JWT token: missing required claims")
+
+    body_identity = {
+        "user_id": request.user_id,
+        "org_id": request.org_id,
+        "master_user_id": request.master_user_id,
+    }
+    token_identity = {
+        "user_id": user_id,
+        "org_id": org_id,
+        "master_user_id": master_user_id,
+    }
+    for field_name, body_value in body_identity.items():
+        token_value = token_identity[field_name]
+        if body_value and body_value != token_value:
+            logger.warning(
+                "Save All request %s mismatch: body=%s token=%s",
+                field_name,
+                body_value,
+                token_value,
+            )
+            # Legacy clients may still send stale identity values; ignore them
+            # and continue using the verified JWT claims.
+
+    try:
+        db = get_prisma()
+        user = db.user.find_unique(where={"id": user_id})
+        if not user:
+            logger.warning("Save All JWT references non-existent user: %s", user_id)
+            raise HTTPException(status_code=401, detail="User not found")
+
+        if user.orgId != org_id:
+            logger.warning(
+                "Save All user %s belongs to org %s but token requested org %s",
+                user_id,
+                user.orgId,
+                org_id,
+            )
+            raise HTTPException(status_code=403, detail="User does not belong to this organization")
+
+        org = db.organization.find_unique(where={"id": org_id})
+        if not org:
+            logger.warning("Save All organization not found: %s", org_id)
+            raise HTTPException(status_code=404, detail="Organization not found")
+
+        resolved_master_user_id = org.masterUserId or user_id
+        if master_user_id != resolved_master_user_id:
+            logger.warning(
+                "Save All master_user_id %s replaced with current org master %s",
+                master_user_id,
+                resolved_master_user_id,
+            )
+            master_user_id = resolved_master_user_id
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Save All identity verification failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to verify identity: {exc}")
+
+    # ── 1. Neo4j write ─────────────────────────────────────────────────
+    neo4j_result: dict = {}
+    try:
+        with service.repository_context() as repo:
+            saver = AnalysisSaver(repo)
+            neo4j_result = saver.save_analysis(
+                query=request.query,
+                domain=request.domain,
+                ishikawa=request.ishikawa,
+                five_whys=request.analysis,
+                ticket_ref=request.ticket_ref or "",
+                part_number=request.part_number or "",
+                source="user_save",
+            )
+        logger.info(
+            "Neo4j save complete: ps_id=%s  content_nodes=%d",
+            neo4j_result.get("ps_id"),
+            neo4j_result.get("content_count", 0),
+        )
+    except Exception as exc:
+        logger.error("Neo4j save failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Neo4j save failed: {exc}",
+        )
+
+    # ── 2. Supabase write ───────────────────────────────────────────────
+    # Supabase identity is optional — if not provided we skip gracefully.
+    supabase_result: dict = {
+        "session_id": None,
+        "ishikawa_id": None,
+        "five_whys_id": None,
+        "skipped": True,
+    }
+
+    try:
+        sb_saver = SupabaseSaver()
+        supabase_result = sb_saver.save_analysis(
+            user_id=user_id,
+            master_user_id=master_user_id,
+            org_id=org_id,
+            query=request.query,
+            domain=request.domain,
+            past_record=request.past_record,
+            session_title=request.session_title,
+            ishikawa=request.ishikawa,
+            five_whys=request.analysis,
+        )
+    except Exception as exc:
+        # Non-fatal — Neo4j data is already saved.
+        logger.error("Supabase save failed (non-fatal): %s", exc)
+        supabase_result["skipped"] = True
+
+    # ── 3. Build response ───────────────────────────────────────────────
+    sb_skipped = supabase_result.get("skipped", True)
+    message_parts = [
+        f"Analysis saved to Neo4j (ps_id={neo4j_result.get('ps_id')}, "
+        f"content_nodes={neo4j_result.get('content_count', 0)})."
+    ]
+    if sb_skipped:
+        message_parts.append("Supabase save skipped (not configured or identity missing).")
+    else:
+        message_parts.append(
+            f"Saved to Supabase (session={supabase_result.get('session_id')})."
+        )
+
+    return SaveAllResponse(
+        success=True,
+        message=" ".join(message_parts),
+        neo4j_ps_id=neo4j_result.get("ps_id"),
+        neo4j_content_count=neo4j_result.get("content_count", 0),
+        supabase_session_id=supabase_result.get("session_id"),
+        supabase_ishikawa_id=supabase_result.get("ishikawa_id"),
+        supabase_five_whys_id=supabase_result.get("five_whys_id"),
+        supabase_skipped=sb_skipped,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/history — Fetch History from Supabase
+# ---------------------------------------------------------------------------
+
+@router.post("/history", response_model=HistoryResponse)
+async def get_history(
+    request = None,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Fetch saved analysis history from Supabase for the given user.
+    
+    JWT token verification:
+    - Extracts Bearer token from Authorization header
+    - Verifies token and extracts user_id, org_id, and master_user_id
+    - Uses the JWT claims as the source of truth for history visibility
+
+    The optional request body is kept only for backward compatibility.
+    """
+    # ── 1. Verify JWT token ────────────────────────────────────────────
+    if not authorization or not authorization.startswith("Bearer "):
+        logger.warning("History request missing or invalid Authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    
+    payload = get_token_claims_from_bearer(authorization)
+    
+    if not payload:
+        logger.warning("History request with invalid/expired JWT token")
+        raise HTTPException(status_code=401, detail="Invalid or expired JWT token")
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        logger.warning("JWT token missing 'sub' claim")
+        raise HTTPException(status_code=401, detail="Invalid JWT token: missing user info")
+    
+    org_id = payload.get("org_id")
+    master_user_id = payload.get("master_user_id")
+
+    if not org_id or not master_user_id:
+        logger.warning("JWT token missing required org claims")
+        raise HTTPException(status_code=401, detail="Invalid JWT token: missing organization info")
+
+    if request and request.org_id and request.org_id != org_id:
+        logger.warning(
+            "History request body org_id %s does not match JWT org_id %s",
+            request.org_id,
+            org_id,
+        )
+        raise HTTPException(status_code=403, detail="Request does not match authenticated organization")
+
+    # ── 2. Query database for user info ─────────────────────────────────
+    try:
+        db = get_prisma()
+        user = db.user.find_unique(where={"id": user_id})
+        
+        if not user:
+            logger.warning(f"JWT token references non-existent user: {user_id}")
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Verify user belongs to the organization from the JWT
+        if user.orgId != org_id:
+            logger.warning(f"User {user_id} attempted to access org {org_id} but belongs to {user.orgId}")
+            raise HTTPException(status_code=403, detail="User does not belong to this organization")
+        # Keep token claims aligned with current database state
+        org = db.organization.find_unique(where={"id": org_id})
+        if not org:
+            logger.warning(f"Organization not found: {org_id}")
+            raise HTTPException(status_code=404, detail="Organization not found")
+
+        if org.masterUserId != master_user_id:
+            logger.warning(
+                "JWT master_user_id %s does not match current org master %s",
+                master_user_id,
+                org.masterUserId,
+            )
+            raise HTTPException(status_code=401, detail="Invalid JWT token: organization access changed")
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Database lookup failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to verify user information")
+
+    # ── 3. Fetch history with verified credentials ─────────────────────
+    logger.info(
+        "History fetch requested for user=%s, org=%s (JWT verified)",
+        user_id,
+        org_id,
+    )
+
+    try:
+        sb_saver = SupabaseSaver()
+        history_data = sb_saver.get_history(
+            user_id=user_id,
+            master_user_id=master_user_id,
+            org_id=org_id,
+        )
+
+        return HistoryResponse(
+            success=True,
+            sessions=history_data,
+        )
+    except Exception as exc:
+        logger.error("Failed to fetch history: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch history: {exc}",
+        )
+
+

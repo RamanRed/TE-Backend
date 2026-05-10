@@ -1,0 +1,154 @@
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "sync"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id                 String    @id @default(uuid()) @db.Uuid
+  name               String
+  slug               String    @unique
+  neo4jUri           String    @default("") @map("neo4j_uri")
+  neo4jUsername      String    @default("") @map("neo4j_username")
+  neo4jPassword      String    @default("") @map("neo4j_password")
+  neo4jDatabase      String    @default("") @map("neo4j_database")
+  auraInstanceId     String?   @unique @map("aura_instance_id")
+  auraInstanceName   String?   @map("aura_instance_name")
+  masterUserId       String?   @unique @db.Uuid @map("master_user_id")
+  plan               String    @default("free")
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  masterUser       User?             @relation("OrgMasterUser", fields: [masterUserId], references: [id])
+  users            User[]            @relation("OrgUsers")
+  systemLogs       SystemLog[]
+  analysisSessions AnalysisSession[]
+  savedIshikawa    SavedIshikawa[]
+  savedFiveWhys    SavedFiveWhys[]
+
+  @@map("organizations")
+}
+
+model User {
+  id           String    @id @db.Uuid
+  orgId        String    @db.Uuid @map("org_id")
+  email        String    @unique
+  password     String?   @map("password_hash")
+  fullName     String?   @map("full_name")
+  position     String?
+  department   String?
+  avatarUrl    String?   @map("avatar_url")
+  role         String    @default("analyst")
+  isMasterUser Boolean   @default(false) @map("is_master_user")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  org                    Organization      @relation("OrgUsers", fields: [orgId], references: [id])
+  masterForOrg           Organization?     @relation("OrgMasterUser")
+  systemLogs             SystemLog[]
+  analysisSessions       AnalysisSession[] @relation("UserSessions")
+  masterAnalysisSessions AnalysisSession[] @relation("MasterUserSessions")
+  savedIshikawa          SavedIshikawa[]   @relation("UserIshikawa")
+  masterSavedIshikawa    SavedIshikawa[]   @relation("MasterUserIshikawa")
+  savedFiveWhys          SavedFiveWhys[]   @relation("UserFiveWhys")
+  masterSavedFiveWhys    SavedFiveWhys[]   @relation("MasterUserFiveWhys")
+
+  @@map("users")
+}
+
+model SystemLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    String   @db.Uuid @map("user_id")
+  orgId     String   @db.Uuid @map("org_id")
+  action    String
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("system_logs")
+}
+
+model AnalysisSession {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid @map("user_id")
+  orgId        String   @db.Uuid @map("org_id")
+  masterUserId String?  @db.Uuid @map("master_user_id")
+  query        String
+  domain       String?
+  pastRecord   Int?     @map("past_record")
+  title        String?
+  isFinalized  Boolean  @default(false) @map("is_finalized")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user          User          @relation("UserSessions", fields: [userId], references: [id], onDelete: Cascade)
+  org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  masterUser    User?         @relation("MasterUserSessions", fields: [masterUserId], references: [id])
+  savedIshikawa SavedIshikawa[]
+  savedFiveWhys SavedFiveWhys[]
+
+  @@map("analysis_sessions")
+}
+
+model SavedIshikawa {
+  id             String   @id @default(uuid()) @db.Uuid
+  sessionId      String   @db.Uuid @map("session_id")
+  userId         String   @db.Uuid @map("user_id")
+  masterUserId   String   @db.Uuid @map("master_user_id")
+  orgId          String   @db.Uuid @map("org_id")
+  problemQuery   String   @map("problem_query")
+  domain         String?
+  categoryCount  Int      @default(6) @map("category_count")
+  causeCount     Int      @default(0) @map("cause_count")
+  data           Json
+  version        Int      @default(1)
+  isFinal        Boolean  @default(false) @map("is_final")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  session      AnalysisSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user         User            @relation("UserIshikawa", fields: [userId], references: [id], onDelete: Cascade)
+  masterUser   User            @relation("MasterUserIshikawa", fields: [masterUserId], references: [id])
+  org          Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  savedFiveWhys SavedFiveWhys[]
+
+  @@map("saved_ishikawa")
+}
+
+model SavedFiveWhys {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionId    String   @db.Uuid @map("session_id")
+  ishikawaId   String?  @db.Uuid @map("ishikawa_id")
+  userId       String   @db.Uuid @map("user_id")
+  masterUserId String   @db.Uuid @map("master_user_id")
+  orgId        String   @db.Uuid @map("org_id")
+  problemQuery String   @map("problem_query")
+  domain       String?
+  chainCount   Int      @default(0) @map("chain_count")
+  data         Json
+  rootCauses   String[] @map("root_causes")
+  version      Int      @default(1)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  session    AnalysisSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  ishikawa   SavedIshikawa?  @relation(fields: [ishikawaId], references: [id])
+  user       User            @relation("UserFiveWhys", fields: [userId], references: [id], onDelete: Cascade)
+  masterUser User            @relation("MasterUserFiveWhys", fields: [masterUserId], references: [id])
+  org        Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("saved_five_whys")
+}
