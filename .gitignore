@@ -9,5 +9,6 @@ wheels/
 # Environment
 .env
 .env.local
+.env.example
 # Virtual environments
 .venv
