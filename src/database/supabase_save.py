@@ -46,6 +46,14 @@ class SupabaseSaver:
             logger.error("Prisma connection failed: %s", exc)
             return {"session_id": None, "ishikawa_id": None, "five_whys_id": None, "skipped": True}
 
+        # ── Defensive coercions ──────────────────────────────────────────
+        if not isinstance(ishikawa, list):
+            ishikawa = []
+        if not isinstance(five_whys, list):
+            five_whys = []
+        if not isinstance(main_cause, list):
+            main_cause = []
+
         session_id = ishikawa_id = five_whys_id = None
 
         try:
@@ -68,7 +76,7 @@ class SupabaseSaver:
             # ── 2. saved_ishikawa ─────────────────────────────────────
             cause_count = sum(
                 1 for cat in ishikawa
-                for item in cat.get("result", [])
+                for item in (cat.get("result", []) if isinstance(cat, dict) else [])
                 if (item.get("cause") or item.get("sub_category") or "").strip()
             )
             ishi = db.savedishikawa.create(
@@ -81,21 +89,27 @@ class SupabaseSaver:
                     "domain": domain or None,
                     "categoryCount": len(ishikawa),
                     "causeCount": cause_count,
-                    "mainCause": main_cause or [],
+                    "mainCause": main_cause,
                     "data": json.dumps(ishikawa),
                     "version": 1,
                     "isFinal": True,
                 }
             )
             ishikawa_id = ishi.id
-            logger.info("Prisma: ishikawa saved   id=%s", ishikawa_id)
+            logger.info("Prisma: ishikawa saved   id=%s  chains=%d  main_causes=%d",
+                        ishikawa_id, cause_count, len(main_cause))
 
             # ── 3. saved_five_whys ────────────────────────────────────
-            root_causes = [
-                (item.get("root_cause") or "").strip()
-                for item in five_whys
-                if (item.get("root_cause") or "").strip()
-            ]
+            # Extract root_causes from each chain safely (handles dict or object)
+            root_causes = []
+            for item in five_whys:
+                if isinstance(item, dict):
+                    rc = (item.get("root_cause") or "").strip()
+                else:
+                    rc = (getattr(item, "root_cause", None) or "").strip()
+                if rc:
+                    root_causes.append(rc)
+
             fw = db.savedfivewhys.create(
                 data={
                     "sessionId": session_id,
@@ -112,10 +126,11 @@ class SupabaseSaver:
                 }
             )
             five_whys_id = fw.id
-            logger.info("Prisma: five_whys saved  id=%s", five_whys_id)
+            logger.info("Prisma: five_whys saved  id=%s  chains=%d  root_causes=%d",
+                        five_whys_id, len(five_whys), len(root_causes))
 
         except Exception as exc:
-            logger.error("Prisma save failed: %s", exc)
+            logger.error("Prisma save failed: %s", exc, exc_info=True)
             return {
                 "session_id": session_id,
                 "ishikawa_id": ishikawa_id,
@@ -170,41 +185,48 @@ class SupabaseSaver:
             results = []
 
             for session in sessions:
-                ishikawa_records = session.savedIshikawa or []
-                five_whys_records = session.savedFiveWhys or []
+                try:
+                    ishikawa_records = session.savedIshikawa or []
+                    five_whys_records = session.savedFiveWhys or []
 
-                ishi = ishikawa_records[0] if ishikawa_records else None
-                fw = five_whys_records[0] if five_whys_records else None
+                    ishi = ishikawa_records[0] if ishikawa_records else None
+                    fw = five_whys_records[0] if five_whys_records else None
 
-                # Handle both string JSON and already-parsed objects
-                if ishi:
-                    if isinstance(ishi.data, str):
-                        ishi_data = json.loads(ishi.data)
-                    else:
-                        ishi_data = ishi.data
-                else:
-                    ishi_data = []
+                    # Safely parse JSON — handles str, dict, list, and None
+                    def safe_json(val, fallback):
+                        if val is None:
+                            return fallback
+                        if isinstance(val, (list, dict)):
+                            return val
+                        if isinstance(val, str):
+                            try:
+                                return json.loads(val)
+                            except Exception:
+                                return fallback
+                        return fallback
 
-                if fw:
-                    if isinstance(fw.data, str):
-                        fw_data = json.loads(fw.data)
-                    else:
-                        fw_data = fw.data
-                else:
-                    fw_data = []
+                    ishi_data = safe_json(ishi.data if ishi else None, [])
+                    fw_data   = safe_json(fw.data if fw else None, [])
 
-                results.append({
-                    "session_id": session.id,
-                    "query": session.query,
-                    "domain": session.domain,
-                    "title": session.title,
-                    "created_at": session.createdAt.isoformat() if session.createdAt else "",
-                    "cause_count": ishi.causeCount if ishi else 0,
-                    "root_causes": fw.rootCauses if fw and fw.rootCauses else [],
-                    "main_cause": ishi.mainCause if ishi and ishi.mainCause else [],
-                    "ishikawa": ishi_data,
-                    "five_whys": fw_data,
-                })
+                    # Ensure fw_data is always a list (handles single-chain objects)
+                    if isinstance(fw_data, dict):
+                        fw_data = [fw_data]
+
+                    results.append({
+                        "session_id":  session.id,
+                        "query":       session.query,
+                        "domain":      session.domain,
+                        "title":       session.title,
+                        "created_at":  session.createdAt.isoformat() if session.createdAt else "",
+                        "cause_count": ishi.causeCount if ishi else 0,
+                        "root_causes": (fw.rootCauses or []) if fw else [],
+                        "main_cause":  (ishi.mainCause or []) if ishi else [],
+                        "ishikawa":    ishi_data,
+                        "five_whys":   fw_data,
+                    })
+                except Exception as row_exc:
+                    logger.warning("Skipping malformed history session %s: %s", session.id, row_exc)
+                    continue
 
             return results
             
