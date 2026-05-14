@@ -48,6 +48,7 @@ class RootCauseProblemRequest(BaseModel):
 class RootCauseProblemResponse(BaseModel):
     success: bool
     ishikawa: List[IshikawaCategory]
+    main_cause: Optional[List[str]] = Field(default_factory=list)
 
 
 class RootCauseRegenerateRequest(BaseModel):
@@ -60,6 +61,7 @@ class RootCauseRegenerateRequest(BaseModel):
 class RootCauseRegenerateResponse(BaseModel):
     success: bool
     ishikawa: List[IshikawaCategory]
+    main_cause: Optional[List[str]] = Field(default_factory=list)
 
 
 class RootCauseFiveWhyRequest(BaseModel):
@@ -67,6 +69,7 @@ class RootCauseFiveWhyRequest(BaseModel):
     query: str
     past_record: Optional[int] = None
     ishikawa: List[Any]
+    main_cause: Optional[List[str]] = None
 
 
 class RootCauseFiveWhyResponse(BaseModel):
@@ -162,6 +165,7 @@ class SaveAllRequest(BaseModel):
     query: str
     ishikawa: List[Any]                     # IshikawaCategory[]
     analysis: List[Any]                     # FiveWhyChainItem[]
+    main_cause: Optional[List[str]] = Field(default_factory=list)
 
     # Legacy-compatible identity fields. The JWT is the source of truth.
     user_id: Optional[str] = None           # users.id of the calling user
@@ -216,6 +220,7 @@ class HistorySessionItem(BaseModel):
     # Summarized stats for list view
     cause_count: int = 0
     root_causes: List[str] = Field(default_factory=list)
+    main_cause: List[str] = Field(default_factory=list)
 
     # Full data snapshots
     ishikawa: List[Any] = Field(default_factory=list)

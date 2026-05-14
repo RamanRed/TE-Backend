@@ -21,6 +21,7 @@ from ...utils.logging import get_logger
 from .constants import (
     FIVE_WHY_MAX_CAUSES,
     FIVE_WHY_MAX_NUM_PREDICT,
+    FIVE_WHY_MIN_NUM_PREDICT,
     FIVE_WHY_TOKENS_PER_CAUSE,
     ISHIKAWA_MIN_RESULTS_PER_BONE,
     ISHIKAWA_NUM_PREDICT,
@@ -110,6 +111,7 @@ async def generate_problem(request: RootCauseProblemRequest):
         return RootCauseProblemResponse(
             success=True,
             ishikawa=padded_categories,
+            main_cause=analysis.get("main_cause", [])
         )
     except Exception as e:
         logger.error(f"Error in /api/problem: {e}")
@@ -157,6 +159,7 @@ async def regenerate_ishikawa(request: RootCauseRegenerateRequest):
         return RootCauseRegenerateResponse(
             success=True,
             ishikawa=padded_categories,
+            main_cause=parsed.get("main_cause", [])
         )
     except Exception as e:
         logger.error(f"Error in /api/regenerate: {e}")
@@ -170,9 +173,25 @@ async def gen_five_why(request: RootCauseFiveWhyRequest):
         logger.info("Generate 5-Why request received.")
 
         with service.analysis_context() as services:
-            compact_ishikawa = compact_ishikawa_for_five_why(request.ishikawa, FIVE_WHY_MAX_CAUSES)
-            if not compact_ishikawa:
-                raise HTTPException(status_code=400, detail="No valid Ishikawa causes found for 5-Why generation")
+            if getattr(request, 'main_cause', None):
+                # Cap to 3 curated causes for focused 5-Why chains
+                truncated = request.main_cause[:3]
+                compact_ishikawa = [
+                    {
+                        "id": i + 1,
+                        "category": f"Primary Cause {i+1}",
+                        "result": [{
+                            "problem_id": f"{i+1}-1",
+                            "cause": cause, 
+                            "evidence": "Extracted from primary root cause analysis"
+                        }]
+                    }
+                    for i, cause in enumerate(truncated)
+                ]
+            else:
+                compact_ishikawa = compact_ishikawa_for_five_why(request.ishikawa, FIVE_WHY_MAX_CAUSES)
+                if not compact_ishikawa:
+                    raise HTTPException(status_code=400, detail="No valid Ishikawa causes found for 5-Why generation")
 
             cause_total = sum(len(category.get("result", [])) for category in compact_ishikawa)
             logger.info(
@@ -181,7 +200,11 @@ async def gen_five_why(request: RootCauseFiveWhyRequest):
                 FIVE_WHY_MAX_CAUSES,
             )
 
-            num_predict = compute_five_why_num_predict(cause_total)
+            if getattr(request, 'main_cause', None):
+                # Each curated cause needs a full 5-level chain (~800 tokens each)
+                num_predict = min(FIVE_WHY_MAX_NUM_PREDICT, max(FIVE_WHY_MIN_NUM_PREDICT, cause_total * 800))
+            else:
+                num_predict = compute_five_why_num_predict(cause_total)
             logger.info("5-Why generation num_predict=%s", num_predict)
 
             ishikawa_json = json.dumps(compact_ishikawa, indent=2)
@@ -193,6 +216,13 @@ async def gen_five_why(request: RootCauseFiveWhyRequest):
                 prompt,
                 "5-Why Generation",
                 num_predict=num_predict,
+            )
+
+            logger.info(
+                "5-Why LLM returned %d chains (causes sent: %d, num_predict: %d)",
+                len(payload.analysis),
+                cause_total,
+                num_predict,
             )
 
             if not payload.analysis and cause_total > 0 and num_predict < FIVE_WHY_MAX_NUM_PREDICT:
@@ -468,6 +498,7 @@ async def save_all(
             session_title=request.session_title,
             ishikawa=request.ishikawa,
             five_whys=request.analysis,
+            main_cause=request.main_cause,
         )
     except Exception as exc:
         # Non-fatal — Neo4j data is already saved.

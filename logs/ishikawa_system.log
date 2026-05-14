@@ -20,3 +20,5 @@
 2026-05-10 15:04:51,156 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=10)
 2026-05-10 15:04:51,163 - ishikawa_system.src.api.app - INFO - create_application:86 - FastAPI application created
 2026-05-11 01:50:22,399 - ishikawa_system.src.llm.client - INFO - __init__:42 - Initialized Ollama client for model qwen2.5:7b (num_gpu=-1, num_thread=12)
+2026-05-14 23:52:54,281 - ishikawa_system.src.database.prisma_client - INFO - get_prisma:22 - Prisma client connected to Supabase
+2026-05-15 01:13:02,371 - ishikawa_system.src.database.prisma_client - INFO - get_prisma:22 - Prisma client connected to Supabase

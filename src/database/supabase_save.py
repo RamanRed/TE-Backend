@@ -34,6 +34,7 @@ class SupabaseSaver:
         session_title: str | None,
         ishikawa: list[dict[str, Any]],
         five_whys: list[dict[str, Any]],
+        main_cause: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Insert session + ishikawa + five_whys rows.
@@ -80,6 +81,7 @@ class SupabaseSaver:
                     "domain": domain or None,
                     "categoryCount": len(ishikawa),
                     "causeCount": cause_count,
+                    "mainCause": main_cause or [],
                     "data": json.dumps(ishikawa),
                     "version": 1,
                     "isFinal": True,
@@ -199,6 +201,7 @@ class SupabaseSaver:
                     "created_at": session.createdAt.isoformat() if session.createdAt else "",
                     "cause_count": ishi.causeCount if ishi else 0,
                     "root_causes": fw.rootCauses if fw and fw.rootCauses else [],
+                    "main_cause": ishi.mainCause if ishi and ishi.mainCause else [],
                     "ishikawa": ishi_data,
                     "five_whys": fw_data,
                 })

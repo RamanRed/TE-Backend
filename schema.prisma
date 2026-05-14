@@ -113,6 +113,7 @@ model SavedIshikawa {
   domain         String?
   categoryCount  Int      @default(6) @map("category_count")
   causeCount     Int      @default(0) @map("cause_count")
+  mainCause      String[] @map("main_cause")
   data           Json
   version        Int      @default(1)
   isFinal        Boolean  @default(false) @map("is_final")
